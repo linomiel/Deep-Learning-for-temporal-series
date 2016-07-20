@@ -3,6 +3,7 @@ This repository contain the main programs from my internship at IRISA in May to 
 
 The files operate in a given structure. They are supposed to be placed at the root of a repository, in wich each dataset has a subdirectory. Each dataset subdirectory is then split in experience subdirectory and each experience directory is finaly split in 2nd layer tuning directory.
 Indeed more than one architecture can be trained given a common first layer.
+
 -----------------------------------------------------------------------------------
 The files are as follows:
 
