@@ -1,9 +1,9 @@
-----------------------------------------------------------------------
+----------------------------------------------------
+--This file does the second part of model.lua, for interrupted experiences.
 
--- This file contain the nn in charge of feature extraction for each pixel.
--- its structure is :
--- conv -> squashing -> pooling -> conv -> squashing -> pooling
-
+-- creates and train the second encoder
+--first, we need to know wich input size is needed
+--narrow_size = opt.k_1 - 1 + opt.p_1*opt.k_2/nfilter
 ----------------------------------------------------------------------
 
 require 'torch'   -- torch
@@ -18,6 +18,7 @@ if not opt then
 	cmd:text()
 	cmd:text('Options:')
 	cmd:option('-directory', 'Brazil', 'selects the directory to use')
+	cmd:option('-subdirectory', "", 'the subdirectory where the first convolution has been trained')
 	cmd:option('-nfilter', 50,'defines the number of filters for the first convolution') --used to be 3 -> not enough data?
 	cmd:option('-nfilter2',90,'defines the number of filters for the second convolution')
 	cmd:option('-k_1', 5,'defines the kernel of the first convolution')
@@ -36,6 +37,7 @@ if not opt then
 	cmd:text()
 end
 
+
 opt = cmd:parse( arg or {})
 
 
@@ -44,26 +46,21 @@ here = lfs.currentdir()
 if not lfs.chdir(here..'/'..opt.directory) then--change the working directory to the dataset directory
 	error('fail in directory change')
 end
-
 dataset = torch.load('dataset.data')
-if opt.use_gpu then -- convert to GPU object
+if opt.use_gpu then
 	require 'cutorch' --for GPU implementation
 	dataset = dataset:cuda()
 end
 input = dataset:size(2)
-----------------------------------------------------------------------
+if not lfs.chdir(here..'/'..opt.directory .. '/' ..opt.subdirectory) then--change the working directory to the model directory
+	error('fail in subdirectory change')
+end
 print 'MAIN: Constructing the model'
 --just the first convolution/pooling layer for now.
 model = nn.Sequential()
-first_layer = nn.Sequential()
+first_layer = torch.load('model1.data'):get(1) --the trained first layer
 second_layer = nn.Sequential()
-conv1 = nn.TemporalConvolution(1, opt.nfilter, opt.k_1)
 conv2 = nn.TemporalConvolution(opt.nfilter, opt.nfilter2, opt.k_2)
-
-first_layer:add(nn.Reshape(input, 1))
-first_layer:add(conv1)
-first_layer:add(nn.Sigmoid())
-first_layer:add(nn.TemporalMaxPooling(opt.p_1))
 
 local pre_pool_len = input - opt.k_1 + 1
 frame_length = math.floor((pre_pool_len - opt.p_1)/opt.p_1 + 1) -- size of the feature series
@@ -72,54 +69,19 @@ second_layer:add(conv2)
 second_layer:add(nn.Sigmoid())
 second_layer:add(nn.TemporalMaxPooling(opt.p_2))
 
-if opt.use_gpu then -- convert to GPU object
-	first_layer = first_layer:cuda()
-	second_layer = second_layer:cuda()
+model:add(first_layer) --has been trained
+model:add(second_layer) --is yet to be trained
+
+if opt.use_gpu then
+	model = model:cuda()
 end
 
-model:add(first_layer)
-model:add(second_layer)
-----------------------------------------------------------------------
-if opt.save ~= "" then
-	--creates and and go in the experience saving directory
-	lfs.mkdir(opt.save)
-	here = lfs.currentdir()
-	lfs.chdir(here..'/'..opt.save)
-	--saves the parameters
-	file = io.open("params.txt", "w")
-	for key, value in pairs(opt) do
-		file:write( key .." : " .. tostring(value) .. "\n")
-	end
-	file:close()
+lfs.mkdir(opt.save)
+if not lfs.chdir(here..'/'..opt.directory .. '/' ..opt.subdirectory .. '/' .. opt.save) then--change the working directory to the final directory
+	error('fail in subsubdirectory change')
 end
--- creates and train the first encoder.
-
-print'MAIN: first convolution external training'
-dofile '../../autoencoder.lua'
-
-print'MAIN: copying the first convolution parameters'
-params, grad_params = encoder:getParameters()
-cparams, cgrad_params = conv1:getParameters()
-for k = 1, params:size(1) do
-	cparams[k] = params[k]
-	cgrad_params[k] = grad_params[k]
-end
-print "MAIN: presaving the model"
-if opt.use_gpu then 
-	-- we create a double tensor version of model and save it
-	dummy = model:clone()
-	dummy = nn.utils.recursiveType(dummy, 'torch.DoubleTensor')
-	torch.save('model1.data', dummy, ascii)
-else
-	torch.save('model1.data', model, ascii) -- saving the model
-end
-----------------------------------------------------------------------
--- creates and train the second encoder
---first, we need to know wich input size is needed
---narrow_size = opt.k_1 - 1 + opt.p_1*opt.k_2/nfilter
-
 print 'MAIN: second convolution external training'
-dofile '../../autoencoder2.lua'
+dofile '../../../autoencoder2.lua'
 
 print'MAIN: copying the second convolution parameters'
 params2, grad_params2 = encoder2:getParameters()
